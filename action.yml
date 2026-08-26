@@ -1,0 +1,101 @@
+name: 'Lain Security Scan'
+description: 'Run Lain, the diff-aware Go fuzzer, and upload its SARIF/markdown/fix reports as CI artifacts.'
+
+inputs:
+  target-url:
+    description: 'Base URL of the app to scan'
+    required: true
+  routes-file:
+    description: 'Path to routes.json, relative to the repo root'
+    required: false
+    default: 'routes.json'
+  base-ref:
+    description: 'Git ref to diff routes against. Defaults to the PR base SHA; empty means scan all routes.'
+    required: false
+    default: ${{ github.event.pull_request.base.sha }}
+  concurrency:
+    description: 'Number of concurrent scan workers'
+    required: false
+    default: '10'
+  skip-llm:
+    description: 'Set to "true" to force the fallback fix template (offline, no API key)'
+    required: false
+    default: 'false'
+  github-token:
+    description: 'GitHub token used to auto-file issues for findings and post the scan summary to the PR. Defaults to the automatic GITHUB_TOKEN.'
+    required: false
+    default: ${{ github.token }}
+  gh-min-severity:
+    description: 'Minimum severity (HIGH/MEDIUM/LOW) to auto-file issues for'
+    required: false
+    default: 'MEDIUM'
+  anthropic-api-key:
+    description: 'Optional LLM API key for fix generation (pass via secrets)'
+    required: false
+  report-json:
+    description: 'Output path for the SARIF report'
+    required: false
+    default: 'report.json'
+  report-md:
+    description: 'Output path for the markdown report'
+    required: false
+    default: 'report.md'
+  report-html:
+    description: 'Output path for the interactive HTML dashboard'
+    required: false
+    default: 'report.html'
+  fix-out:
+    description: 'Output path for the fix report'
+    required: false
+    default: 'fix.md'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Check out the repo under scan
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.22'
+
+    - name: Build lain
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: |
+        go build -o "$RUNNER_TEMP/lain" .
+
+    - name: Run lain scan
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+      run: |
+        args=(--target "${{ inputs.target-url }}"
+              --routes "${{ inputs.routes-file }}"
+              --concurrency "${{ inputs.concurrency }}"
+              --base-ref "${{ inputs.base-ref }}"
+              --report-json "${{ inputs.report-json }}"
+              --report-md "${{ inputs.report-md }}"
+              --report-html "${{ inputs.report-html }}"
+              --fix-out "${{ inputs.fix-out }}")
+        if [ "${{ inputs.skip-llm }}" = "true" ]; then
+          args+=(--skip-llm)
+        fi
+        args+=(--gh-token "${{ inputs.github-token }}")
+        args+=(--gh-repo "${{ github.repository }}")
+        args+=(--gh-min-severity "${{ inputs.gh-min-severity }}")
+        "$RUNNER_TEMP/lain" "${args[@]}"
+
+    - name: Upload lain reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: lain-reports
+        if-no-files-found: warn
+        path: |
+          ${{ inputs.report-json }}
+          ${{ inputs.report-md }}
+          ${{ inputs.report-html }}
+          ${{ inputs.fix-out }}

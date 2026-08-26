@@ -1,0 +1,6 @@
+.env
+*.exe
+report.html
+fix.md
+report.md
+report.json

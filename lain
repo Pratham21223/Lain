@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Lain launcher for macOS / Linux (run from inside the project repo).
+# Builds the binary on first use, then forwards all arguments to it.
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BIN="$DIR/lain"
+if [ ! -x "$BIN" ]; then
+  echo "building lain..." >&2
+  (cd "$DIR" && go build -o lain .)
+fi
+exec "$BIN" "$@"
